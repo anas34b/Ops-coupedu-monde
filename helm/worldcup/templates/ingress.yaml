@@ -1,0 +1,39 @@
+# L'Ingress décrit les règles de routage HTTP ("quelle URL va vers quel
+# Service"). C'est l'AWS Load Balancer Controller (installé séparément dans
+# le cluster via eksctl/Helm) qui LIT cet Ingress et crée un vrai ALB
+# (Application Load Balancer) AWS derrière. C'est cet ALB qui donne l'URL
+# publique du site.
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "worldcup.fullname" . }}
+  labels:
+    {{- include "worldcup.labels" . | nindent 4 }}
+  annotations:
+    # "alb" indique au Load Balancer Controller (et pas un autre Ingress
+    # Controller) de prendre en charge cet Ingress.
+    kubernetes.io/ingress.class: {{ .Values.ingress.className }}
+    # Les autres annotations (scheme internet-facing, healthcheck...) sont
+    # définies dans values.yaml -> ingress.annotations et injectées ici.
+    {{- range $key, $value := .Values.ingress.annotations }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+spec:
+  rules:
+    - {{- if .Values.ingress.host }}
+      host: {{ .Values.ingress.host }}
+      {{- end }}
+      http:
+        paths:
+          # Toutes les routes ("/") sont renvoyées vers le Service de l'app —
+          # les routes de l'app ne sont pas modifiées, on ne fait ici que du
+          # routage réseau, pas de logique applicative.
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "worldcup.fullname" . }}
+                port:
+                  number: {{ .Values.service.port }}
+{{- end }}

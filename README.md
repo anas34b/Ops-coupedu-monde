@@ -25,8 +25,39 @@ cd capstone-dplc
 docker-compose up --build
 
 # 3. Vérifier
-curl http://localhost:3000/          # → {"status":"ok"}
-curl http://localhost:3000/metrics   # → métriques Prometheus
+curl http://localhost:3000/api/health    # → {"status":"ok"}
+curl http://localhost:3000/metrics       # → métriques Prometheus
+```
+
+---
+
+## Déploiement (AWS / EKS)
+
+- **URL publique** : _à compléter après déploiement_ (`kubectl get ingress`)
+- **Grafana** : _à compléter après déploiement_ (admin / voir `monitoring/prometheus-values.yaml`)
+- **Coût estimé** : voir [docs/FINOPS.md](docs/FINOPS.md)
+- **Architecture** : voir [docs/architecture.md](docs/architecture.md)
+
+```bash
+# Construire et pousser l'image sur ECR, puis créer le cluster
+eksctl create cluster -f infra/cluster.yaml
+kubectl apply -f infra/cluster-autoscaler.yaml
+
+# Créer le secret DB (jamais en clair dans Git)
+kubectl create secret generic db-credentials \
+  --from-literal=DB_HOST=<endpoint-rds> --from-literal=DB_PORT=5432 \
+  --from-literal=DB_USER=postgres --from-literal=DB_PASSWORD=<mdp> \
+  --from-literal=DB_NAME=worldcup2026
+
+# Déployer l'application
+helm install worldcup ./helm/worldcup --set image.repository=<ecr-url>
+
+# Monitoring (procédure détaillée : monitoring/README.md)
+# -> Prometheus/Grafana, Loki/Promtail (logs centralisés), alerting Slack,
+#    dashboard auto-provisionné
+
+# Job Mission 3
+kubectl apply -f job/serviceaccount.yaml -f job/cronjob.yaml
 ```
 
 ---
@@ -34,17 +65,38 @@ curl http://localhost:3000/metrics   # → métriques Prometheus
 ## Structure du projet
 
 ```
-capstone-dplc/
-├── app/                    # Code source de l'application (Node.js)
-│   ├── main.js             # Application Express
-│   ├── Dockerfile          # Dockerfile à optimiser !
-│   ├── init.sql            # Script d'initialisation PostgreSQL
-│   ├── package.json        # Dépendances
-│   └── tests/              # Tests property-based
+.
+├── app/                          # Code source de l'application (Node.js) — non modifié
+│   ├── main.js
+│   ├── Dockerfile                # ✅ optimisé (voir OPTIMISATION.md)
+│   ├── .dockerignore
+│   └── tests/
+├── helm/worldcup/                # ✅ Helm Chart : Deployment, Service, HPA, Ingress
+├── infra/                        # ✅ Config eksctl (= CloudFormation) + Cluster Autoscaler
+│   ├── cluster.yaml
+│   └── cluster-autoscaler.yaml
+├── monitoring/                   # ✅ Prometheus/Grafana + Loki/Promtail (logs) + alerting Slack
+│   ├── README.md                 # Procédure d'installation complète
+│   ├── prometheus-values.yaml
+│   ├── prometheus-values.secret.yaml.example  # Template webhook Slack (le vrai fichier est gitignoré)
+│   ├── loki-values.yaml
+│   ├── servicemonitor.yaml
+│   ├── alerts.yaml
+│   └── grafana-dashboard.json
+├── job/                          # ✅ Mission 3 : CronJob rapport quotidien → S3
+│   ├── job.js
+│   ├── Dockerfile
+│   ├── cronjob.yaml
+│   └── serviceaccount.yaml       # IRSA (accès S3 sans clé statique)
+├── tests/load-test.js            # ✅ Script k6 (démo élasticité)
+├── .github/workflows/deploy.yml  # ✅ CI/CD : test → build → push ECR → helm upgrade
 ├── docs/
-│   └── GUIDE-ETUDIANT.md  # Guide technique (routes API, variables, conseils)
-├── docker-compose.yml      # Orchestration locale
-└── README.md               # Ce fichier
+│   ├── GUIDE-ETUDIANT.md         # Guide technique fourni (routes API, variables, conseils)
+│   ├── FINOPS.md                 # ✅ Estimation de coût chiffrée
+│   └── architecture.md           # ✅ Schéma d'architecture (Mermaid)
+├── OPTIMISATION.md                # ✅ Anti-patterns Dockerfile corrigés + pourquoi
+├── docker-compose.yml             # Orchestration locale — non modifié
+└── README.md                      # Ce fichier
 ```
 
 ---

@@ -1,0 +1,45 @@
+# CronJob = un "Job" (tâche qui s'exécute une fois jusqu'à completion, pas un
+# serveur qui tourne en continu) planifié selon une syntaxe cron classique.
+# Traitement planifié qui lit la BDD automatiquement (classement + votes).
+#
+# Test manuel (sans attendre minuit) :
+#   kubectl create job test --from=cronjob/classement-quotidien
+#   kubectl logs job/test
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: classement-quotidien
+spec:
+  schedule: "0 0 * * *" # tous les jours à minuit UTC
+  # Si l'exécution précédente n'est pas encore finie, on n'en lance pas une
+  # deuxième en parallèle (évite 2 jobs qui écrivent en même temps sur S3).
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      # Si le job plante, K8s retente 2 fois avant d'abandonner et de marquer
+      # l'exécution comme échouée (visible avec kubectl get jobs).
+      backoffLimit: 2
+      template:
+        spec:
+          # ServiceAccount avec IRSA (voir serviceaccount.yaml) : donne au pod
+          # le droit d'écrire sur S3, sans clé AWS stockée nulle part.
+          serviceAccountName: worldcup-job-sa
+          containers:
+            - name: rapport
+              image: 673586358333.dkr.ecr.eu-west-3.amazonaws.com/worldcup-job:latest
+              # Mêmes credentials DB que l'app principale (même Secret K8s,
+              # créé une seule fois, jamais en clair dans Git).
+              envFrom:
+                - secretRef:
+                    name: db-credentials
+              env:
+                - name: S3_BUCKET
+                  value: worldcup-cdm2026-rapports-673586358333
+                - name: AWS_REGION
+                  value: eu-west-3
+          # Un Job (contrairement à un Deployment) ne doit PAS redémarrer en
+          # boucle s'il a fini : OnFailure = on ne relance que si ça a planté,
+          # pas après un succès.
+          restartPolicy: OnFailure

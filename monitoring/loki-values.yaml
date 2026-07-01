@@ -1,0 +1,24 @@
+# Values pour `helm install loki grafana/loki-stack -n monitoring -f monitoring/loki-values.yaml`
+# Installe Loki (stockage des logs) + Promtail (DaemonSet qui tail les logs de
+# chaque pod et les envoie à Loki). Grafana et Prometheus sont déjà installés
+# par kube-prometheus-stack -> désactivés ici pour ne pas les dupliquer.
+
+loki:
+  enabled: true
+  persistence:
+    # FinOps : pas de volume EBS supplémentaire pour la démo (logs perdus au
+    # redémarrage du pod Loki, acceptable pour la durée du projet).
+    enabled: false
+  config:
+    table_manager:
+      retention_deletes_enabled: true
+      retention_period: 24h
+
+promtail:
+  enabled: true
+
+grafana:
+  enabled: false
+
+prometheus:
+  enabled: false

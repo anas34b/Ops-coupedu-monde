@@ -1,0 +1,104 @@
+# Pipeline CI/CD : à chaque push sur main qui touche app/ ou helm/, ce
+# workflow teste, build l'image, la pousse sur ECR, puis déploie sur EKS.
+# C'est ÇA qui remplace le "docker build/push" à la main une fois que l'ECR,
+# le cluster EKS et le rôle IAM OIDC (ci-dessous) existent déjà.
+name: Build & Deploy
+
+on:
+  push:
+    branches: [main]
+    # Ne se déclenche que si le code de l'app ou le Helm Chart a changé
+    # (évite de redéployer pour un changement de README par exemple).
+    paths:
+      - "app/**"
+      - "helm/**"
+  # Permet aussi de le lancer à la main depuis l'onglet "Actions" de GitHub.
+  workflow_dispatch: {}
+
+env:
+  AWS_REGION: eu-west-3
+  ECR_REPOSITORY: worldcup-app
+  EKS_CLUSTER_NAME: worldcup-cluster
+
+jobs:
+  # --- Job 1 : CI (intégration continue) ---
+  # Si les tests échouent, le job build-and-deploy ci-dessous ne se lance
+  # même pas (grâce à "needs: test") : on ne déploie jamais du code cassé.
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: app/package-lock.json
+
+      - run: npm ci
+      - run: npm test
+
+  # --- Job 2 : CD (déploiement continu) ---
+  build-and-deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    # "id-token: write" est nécessaire pour l'authentification OIDC ci-dessous
+    # (GitHub génère un jeton temporaire prouvant son identité à AWS).
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      # Authentification à AWS SANS clé secrète stockée dans GitHub : on
+      # utilise un rôle IAM (avec fournisseur OIDC) qui fait confiance à
+      # GitHub Actions, à créer une fois côté AWS IAM. Seul AWS_ACCOUNT_ID
+      # doit être ajouté dans Settings > Secrets du repo.
+      - name: Configure AWS credentials (OIDC, pas de clé statique)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/GitHubActionsRole
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # Construit l'image (avec le Dockerfile optimisé) et la pousse sur ECR
+      # avec 2 tags : le SHA du commit (traçabilité exacte) et "latest".
+      - name: Build & push image
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:${{ github.sha }} ./app
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:${{ github.sha }} $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:${{ github.sha }}
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+      # Récupère les identifiants pour que kubectl/helm (étapes suivantes)
+      # puissent parler au cluster EKS.
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
+
+      # "upgrade --install" : crée le déploiement s'il n'existe pas encore,
+      # ou le met à jour sinon (rolling update géré par le Deployment K8s).
+      # On force le tag d'image au SHA du commit pour être sûr de déployer
+      # exactement ce qui vient d'être buildé (pas un "latest" ambigu).
+      - name: Deploy with Helm
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+        run: |
+          helm upgrade --install worldcup ./helm/worldcup \
+            --set image.repository=$ECR_REGISTRY/$ECR_REPOSITORY \
+            --set image.tag=${{ github.sha }} \
+            --wait --timeout 5m
+
+      # Vérifie que le déploiement a réellement réussi en tapant l'URL
+      # publique réelle (pas juste "le pod existe").
+      - name: Smoke test
+        run: |
+          URL=$(kubectl get ingress worldcup-worldcup -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+          curl -sf "http://$URL/api/health"

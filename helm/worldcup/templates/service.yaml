@@ -1,0 +1,23 @@
+# Un Service = une adresse réseau STABLE qui répartit le trafic entre les
+# pods (qui, eux, ont des IP qui changent à chaque redémarrage). C'est le
+# "reverse-proxy interne" entre l'Ingress/ALB et les pods de l'app.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "worldcup.fullname" . }}
+  labels:
+    {{- include "worldcup.labels" . | nindent 4 }}
+spec:
+  # ClusterIP = adresse uniquement valable à l'intérieur du cluster.
+  # C'est l'Ingress (ingress.yaml) qui se charge de rendre ça accessible
+  # depuis Internet via l'ALB.
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  # Le Service envoie le trafic uniquement aux pods qui matchent ce label
+  # ET dont la readinessProbe est actuellement OK (voir deployment.yaml).
+  selector:
+    {{- include "worldcup.selectorLabels" . | nindent 4 }}

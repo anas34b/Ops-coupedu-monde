@@ -1,0 +1,19 @@
+# PodDisruptionBudget : protège contre les coupures "volontaires" (pas un
+# crash, mais une action planifiée de Kubernetes/AWS qui retire un pod —
+# ex. le Cluster Autoscaler qui vide un nœud avant de le supprimer, ou une
+# mise à jour du cluster). Sans cette règle, rien n'empêcherait K8s d'éteindre
+# les 2 pods de l'app en même temps pendant une telle opération.
+# minAvailable: 1 = "il doit toujours en rester au moins 1 allumé".
+{{- if .Values.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "worldcup.fullname" . }}
+  labels:
+    {{- include "worldcup.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "worldcup.selectorLabels" . | nindent 6 }}
+{{- end }}

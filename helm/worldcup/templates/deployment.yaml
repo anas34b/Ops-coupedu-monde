@@ -1,0 +1,83 @@
+# Un "Deployment" Kubernetes = la promesse "garde-moi toujours N copies (pods)
+# de cette image qui tournent". Si un pod meurt, K8s en recrée un. Si on
+# change l'image, il met à jour les pods un par un sans coupure (rolling update).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "worldcup.fullname" . }}
+  labels:
+    {{- include "worldcup.labels" . | nindent 4 }}
+spec:
+  # Nombre de copies de l'app qui tournent en même temps. >= 2 pour la haute
+  # disponibilité : si un pod tombe, l'autre continue de servir.
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "worldcup.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "worldcup.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- if .Values.podAntiAffinity.enabled }}
+      # "Anti-affinité" : on demande à K8s d'éviter de mettre les 2 pods sur la
+      # même zone de disponibilité (AZ) si possible. C'est ce qui réalise
+      # concrètement le "multi-AZ" : si une AZ tombe, l'autre pod survit.
+      # "preferred" (et pas "required") : si un jour il n'y a qu'1 seul nœud
+      # disponible, K8s autorise quand même le déploiement plutôt que de
+      # bloquer.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: topology.kubernetes.io/zone
+                labelSelector:
+                  matchLabels:
+                    {{- include "worldcup.selectorLabels" . | nindent 20 }}
+      {{- end }}
+      containers:
+        - name: {{ include "worldcup.name" . }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+          # Injecte DB_HOST/DB_PORT/DB_USER/DB_PASSWORD/DB_NAME comme variables
+          # d'environnement, depuis un Secret K8s créé à la main (jamais commité
+          # en Git, voir values.yaml -> dbSecretName).
+          envFrom:
+            - secretRef:
+                name: {{ .Values.dbSecretName }}
+          # "requests" = ce que le pod réserve au minimum sur le nœud (sert au
+          # scheduler ET au calcul du % CPU utilisé par le HPA, voir hpa.yaml).
+          # "limits" = le plafond dur ; au-delà, le conteneur est throttle/tué.
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          # Liveness probe : "ce pod est-il vivant ?". Si la route /api/health
+          # ne répond pas après {failureThreshold} échecs, kubelet tue et
+          # relance le conteneur. (Dans le cas du /api/admin/kill, le process
+          # crashe directement donc le conteneur redémarre sans même attendre
+          # cette probe — mais elle protège aussi contre un blocage/deadlock.)
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.probes.liveness.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+          # Readiness probe : "ce pod est-il prêt à recevoir du trafic ?". Elle
+          # vérifie /api/health/db (donc que la connexion PostgreSQL marche).
+          # Tant qu'elle échoue, le Service et l'Ingress/ALB n'envoient AUCUNE
+          # requête à ce pod -> l'utilisateur ne voit jamais d'erreur pendant
+          # un redémarrage. Réglée plus agressive que la liveness pour que le
+          # pod redevienne "Ready" vite après un restart (budget des 15s).
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probes.readiness.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.readiness.failureThreshold }}

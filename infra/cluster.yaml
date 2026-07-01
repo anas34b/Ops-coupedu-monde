@@ -1,0 +1,81 @@
+# Fichier de config pour eksctl. eksctl le lit et génère un template
+# CloudFormation derrière, qui crée toutes les ressources AWS (VPC, subnets,
+# cluster EKS, nodegroup EC2...) en une seule commande :
+#
+#   eksctl create cluster -f infra/cluster.yaml
+#
+# Ça prend 15-20 minutes (CloudFormation crée tout pas à pas).
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+# Identité du cluster : son nom (utilisé partout ensuite, ex. dans
+# helm/worldcup ou job/serviceaccount.yaml), la région AWS, et la version de
+# Kubernetes du control plane (géré par AWS, on ne le voit pas tourner).
+metadata:
+  name: worldcup-cluster
+  region: eu-west-3
+  version: "1.32"
+
+# Les 2 datacenters physiques sur lesquels le cluster sera réparti.
+# C'est CE choix qui réalise l'exigence "haute disponibilité multi-AZ" :
+# si eu-west-3a tombe, eu-west-3b continue de servir.
+availabilityZones:
+  - eu-west-3a
+  - eu-west-3b
+
+# Un NAT Gateway permettrait aux machines en réseau privé de sortir vers
+# Internet (télécharger des images Docker, etc.) sans être joignables depuis
+# l'extérieur. Coûte ~32 $/mois en continu. Pour un projet de 2-3 jours, on
+# le désactive et on met les machines en réseau public à la place (voir
+# privateNetworking: false plus bas) — moins "propre" en vraie prod, mais
+# gratuit pour la démo.
+vpc:
+  nat:
+    gateway: Disable
+
+# Le "nodegroup" = le groupe de machines EC2 qui font tourner les pods.
+# C'est lui que le Cluster Autoscaler (infra/cluster-autoscaler.yaml) va
+# agrandir/réduire automatiquement selon la charge.
+managedNodeGroups:
+  - name: workers
+    # t3.medium a été refusé par AWS : "not eligible for Free Tier" (le compte
+    # est restreint aux instances Free Tier). Seuls t2.micro/t3.micro le sont.
+    instanceType: t3.micro
+    # Toujours au moins 2 machines (cohérent avec les 2 réplicas minimum de
+    # l'app) ; peut monter jusqu'à 8 si le Cluster Autoscaler en a besoin.
+    minSize: 2
+    maxSize: 8
+    desiredCapacity: 2
+    availabilityZones:
+      - eu-west-3a
+      - eu-west-3b
+    # Par défaut, un t3.micro n'accepte que 4 pods max (limite réseau liée au
+    # nombre d'IP disponibles par carte réseau, pas à la RAM/CPU). On relève
+    # cette limite à 17 (= ce qu'un t3.medium aurait par défaut) grâce au
+    # "prefix delegation" activé sur le CNI (voir la commande kubectl juste
+    # après la création du nodegroup). Sans les 2 réglages ensemble (celui-ci
+    # + le prefix delegation), les pods système/monitoring bloquent tout.
+    maxPodsPerNode: 17
+    # Cohérent avec le NAT Gateway désactivé ci-dessus : les machines ont une
+    # IP publique directe au lieu de passer par un NAT.
+    privateNetworking: false
+    amiFamily: AmazonLinux2
+    # Donne aux machines EC2 les permissions IAM nécessaires pour :
+    # - autoScaler  : que le Cluster Autoscaler puisse ajouter/retirer des nœuds
+    # - albIngress  : que l'AWS Load Balancer Controller puisse créer l'ALB
+    # - cloudWatch  : envoyer des logs/métriques système vers CloudWatch
+    iam:
+      withAddonPolicies:
+        autoScaler: true
+        albIngress: true
+        cloudWatch: true
+
+# Composants de base installés automatiquement dans le cluster.
+# metrics-server est indispensable : c'est lui qui fournit le CPU des pods au
+# HPA (helm/worldcup/templates/hpa.yaml) — sans lui, l'auto-scaling ne marche
+# pas du tout.
+addons:
+  - name: vpc-cni # gère le réseau entre les pods
+  - name: coredns # DNS interne du cluster (ex. resolution de "db-credentials")
+  - name: kube-proxy # route le trafic réseau vers le bon pod
+  - name: metrics-server # expose le CPU/RAM des pods, utilisé par le HPA

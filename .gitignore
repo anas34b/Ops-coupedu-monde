@@ -26,3 +26,9 @@ coverage/
 # Temporary files
 tmp/
 *.tmp
+
+# Secrets locaux (webhooks, mots de passe) - jamais commités
+monitoring/*.secret.yaml
+
+# Docs de préparation perso (soutenance, notes de travail) - jamais poussées
+capstone-dplc/

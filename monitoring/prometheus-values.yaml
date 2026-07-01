@@ -1,0 +1,67 @@
+# Values pour `helm install monitoring prometheus-community/kube-prometheus-stack -n monitoring -f monitoring/prometheus-values.yaml`
+# Garde le scope volontairement minimal (FinOps : pas de stockage long terme payant).
+#
+# Procédure complète (Loki, ServiceMonitor, alertes, dashboard) : monitoring/README.md
+#
+# L'URL du webhook Slack ne doit jamais être commitée : créer un fichier
+# monitoring/prometheus-values.secret.yaml (gitignoré, voir
+# monitoring/prometheus-values.secret.yaml.example) et l'ajouter avec
+# `-f monitoring/prometheus-values.secret.yaml` à l'install pour surcharger
+# alertmanager.config.receivers[0].slack_configs[0].api_url.
+
+grafana:
+  service:
+    # LoadBalancer pour exposer Grafana publiquement pendant la démo.
+    # À repasser en ClusterIP + port-forward pour un usage prolongé.
+    type: LoadBalancer
+  defaultDashboardsEnabled: true
+  adminPassword: "changeme-avant-la-demo"
+  # Auto-provisionne les dashboards stockés dans des ConfigMap labellisées
+  # grafana_dashboard: "1" (voir monitoring/README.md, section 4).
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      url: http://loki:3100
+      access: proxy
+      # Sans ça, conflit avec le Prometheus par défaut du chart (déjà
+      # isDefault: true) -> Grafana refuse de démarrer ("only one datasource
+      # per organization can be marked as default"), CrashLoopBackOff garanti.
+      isDefault: false
+
+prometheus:
+  prometheusSpec:
+    retention: 6h
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    # Permet à Prometheus de découvrir le ServiceMonitor de l'app
+    # même s'il n'a pas le label release=monitoring.
+    serviceMonitorSelectorNilUsesHelmValues: false
+
+alertmanager:
+  enabled: true
+  config:
+    route:
+      receiver: slack
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 3h
+    receivers:
+      - name: slack
+        slack_configs:
+          # Placeholder volontaire : surchargé par
+          # monitoring/prometheus-values.secret.yaml (non commité).
+          - api_url: "https://hooks.slack.com/services/REPLACE/ME/PLACEHOLDER"
+            channel: "#capstone-cdm2026"
+            send_resolved: true
+            title: "{{ .CommonAnnotations.summary }}"
+            text: "{{ .CommonAnnotations.description }}"

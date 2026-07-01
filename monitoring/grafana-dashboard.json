@@ -1,0 +1,93 @@
+{
+  "title": "Worldcup 2026 - App & Scaling",
+  "timezone": "browser",
+  "refresh": "10s",
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Pods Running",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "kube_deployment_status_replicas_available{deployment=~\".*worldcup.*\"}",
+          "legendFormat": "réplicas disponibles"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Nodes Ready",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(kube_node_status_condition{condition=\"Ready\",status=\"true\"})",
+          "legendFormat": "nodes"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Requêtes HTTP / s",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total[1m])) by (status_code)",
+          "legendFormat": "{{status_code}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "CPU moyen des pods (déclenche le HPA à 70%)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "targets": [
+        {
+          "expr": "avg(rate(container_cpu_usage_seconds_total{pod=~\".*worldcup.*\"}[2m])) * 100",
+          "legendFormat": "CPU % moyen"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Latence p95 (s)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, route))",
+          "legendFormat": "{{route}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Taux d'erreurs 5xx",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{status_code=~\"5..\"}[1m])) / sum(rate(http_requests_total[1m]))",
+          "legendFormat": "taux erreur"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Logs centralisés (Loki) - pods worldcup",
+      "type": "logs",
+      "datasource": { "type": "loki" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 22 },
+      "targets": [
+        {
+          "datasource": { "type": "loki" },
+          "expr": "{namespace=\"default\"} |~ \"worldcup\""
+        }
+      ]
+    }
+  ]
+}

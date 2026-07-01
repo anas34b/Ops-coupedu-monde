@@ -1,0 +1,40 @@
+# PrometheusRule consommée par kube-prometheus-stack (CRD installée par le chart).
+# kubectl apply -f monitoring/alerts.yaml -n monitoring
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: worldcup-alerts
+  namespace: monitoring
+  labels:
+    release: monitoring
+spec:
+  groups:
+    - name: worldcup.rules
+      rules:
+        - alert: WorldcupPodDown
+          expr: kube_deployment_status_replicas_available{deployment=~".*worldcup.*"} < 2
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Moins de 2 réplicas disponibles pour l'app worldcup"
+            description: "Exige >= 2 réplicas (haute dispo). Valeur actuelle : {{ $value }}."
+
+        - alert: WorldcupHighCPU
+          expr: avg(rate(container_cpu_usage_seconds_total{pod=~".*worldcup.*"}[2m])) > 0.7
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "CPU moyen des pods worldcup > 70%"
+            description: "Le HPA devrait être en train de scaler. À vérifier sur Grafana."
+
+        - alert: WorldcupHighErrorRate
+          expr: sum(rate(http_requests_total{status_code=~"5.."}[2m])) / sum(rate(http_requests_total[2m])) > 0.05
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Taux d'erreurs HTTP 5xx > 5%"
+            description: "Vérifier les logs et la connexion à la base de données."

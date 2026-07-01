@@ -1,0 +1,79 @@
+replicaCount: 2
+
+image:
+  repository: <account-id>.dkr.ecr.eu-west-3.amazonaws.com/worldcup-app
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 3000
+
+ingress:
+  enabled: true
+  className: alb
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/healthcheck-path: /api/health
+    # Healthcheck ALB accéléré : par défaut AWS vérifie toutes les 15s avec un
+    # seuil de 5 checks consécutifs (jusqu'à 75s pour re-router le trafic).
+    # On resserre pour tenir l'exigence "redémarrage < 15s" pendant le crash-test.
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "5"
+    alb.ingress.kubernetes.io/healthcheck-timeout-seconds: "3"
+    alb.ingress.kubernetes.io/healthy-threshold-count: "2"
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: "2"
+  host: ""
+
+# Nom du Secret K8s contenant les credentials DB.
+# Ce secret n'est PAS créé par ce chart (donc jamais en clair dans Git) :
+# kubectl create secret generic db-credentials \
+#   --from-literal=DB_HOST=<endpoint-rds> --from-literal=DB_PORT=5432 \
+#   --from-literal=DB_USER=postgres --from-literal=DB_PASSWORD=<mdp> \
+#   --from-literal=DB_NAME=worldcup2026
+dbSecretName: db-credentials
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 192Mi
+  # memory: 256Mi provoquait des OOMKill (exit code 137) sous charge (k6) :
+  # trop juste pour encaisser beaucoup de requêtes/connexions concurrentes.
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+hpa:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+probes:
+  liveness:
+    path: /api/health
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    # timeout + failureThreshold tolérants EXPRÈS : /api/compute est une boucle
+    # synchrone qui bloque l'event loop Node 2-3s -> pendant ce temps /api/health
+    # ne répond pas. Sans cette tolérance, K8s tuerait les pods en plein load
+    # test. NB : ça ne ralentit pas la récup après /api/admin/kill (qui fait
+    # process.exit -> le conteneur meurt et redémarre sans passer par la probe).
+    timeoutSeconds: 3
+    failureThreshold: 3
+  readiness:
+    path: /api/health/db
+    # initialDelay court pour redevenir "Ready" vite après un restart, mais
+    # failureThreshold/timeout tolérants pour ne PAS sortir les pods de la
+    # rotation à chaque blocage transitoire de l'event loop sous charge.
+    initialDelaySeconds: 2
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+podAntiAffinity:
+  enabled: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

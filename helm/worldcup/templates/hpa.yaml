@@ -1,0 +1,33 @@
+# HPA = Horizontal Pod Autoscaler. C'est le "thermostat" des pods : il
+# surveille le CPU (via metrics-server, voir infra/cluster.yaml) et ajuste le
+# nombre de pods du Deployment tout seul. C'est ce qui réagit quand la route
+# /api/compute (qui sature volontairement le CPU) est sollicitée en masse.
+{{- if .Values.hpa.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "worldcup.fullname" . }}
+  labels:
+    {{- include "worldcup.labels" . | nindent 4 }}
+spec:
+  # Le Deployment que ce HPA pilote (même nom que deployment.yaml).
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "worldcup.fullname" . }}
+  # Ne descend jamais sous 2 (haute dispo) ni ne monte au-delà de 10 (FinOps :
+  # limite la facture si jamais le trafic explose plus que prévu).
+  minReplicas: {{ .Values.hpa.minReplicas }}
+  maxReplicas: {{ .Values.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          # Dès que le CPU moyen des pods dépasse ce %, le HPA ajoute des
+          # pods. Si les nœuds EC2 existants sont pleins, c'est le Cluster
+          # Autoscaler (infra/cluster-autoscaler.yaml) qui prend le relais
+          # pour ajouter des machines.
+          averageUtilization: {{ .Values.hpa.targetCPUUtilizationPercentage }}
+{{- end }}

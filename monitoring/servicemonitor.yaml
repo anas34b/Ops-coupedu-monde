@@ -1,0 +1,22 @@
+# Indique à Prometheus (installé par kube-prometheus-stack) de scraper
+# l'endpoint /metrics du Service Helm "worldcup".
+# kubectl apply -f monitoring/servicemonitor.yaml -n monitoring
+
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: worldcup-app
+  namespace: monitoring
+  labels:
+    release: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - default
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: worldcup
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
