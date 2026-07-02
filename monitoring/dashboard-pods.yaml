@@ -1,0 +1,81 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dashboard-pods-worldcup
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  pods-worldcup.json: |
+    {
+      "title": "Worldcup — Pods en temps réel",
+      "uid": "worldcup-pods",
+      "timezone": "browser",
+      "refresh": "5s",
+      "time": { "from": "now-15m", "to": "now" },
+      "panels": [
+        {
+          "id": 1,
+          "title": "Pods Running & CPU %",
+          "type": "timeseries",
+          "gridPos": { "x": 0, "y": 0, "w": 24, "h": 12 },
+          "fieldConfig": {
+            "defaults": {
+              "lineWidth": 2,
+              "fillOpacity": 10,
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "stepAfter",
+                "spanNulls": false,
+                "showPoints": "always",
+                "pointSize": 6
+              },
+              "min": 0,
+              "decimals": 1
+            },
+            "overrides": [
+              {
+                "matcher": { "id": "byName", "options": "Pods Running" },
+                "properties": [
+                  { "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } },
+                  { "id": "unit", "value": "short" },
+                  { "id": "decimals", "value": 0 },
+                  { "id": "custom.axisPlacement", "value": "left" },
+                  { "id": "custom.axisLabel", "value": "Pods" }
+                ]
+              },
+              {
+                "matcher": { "id": "byName", "options": "CPU %" },
+                "properties": [
+                  { "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } },
+                  { "id": "unit", "value": "percent" },
+                  { "id": "custom.axisPlacement", "value": "right" },
+                  { "id": "custom.axisLabel", "value": "CPU %" },
+                  { "id": "max", "value": 100 }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": { "displayMode": "list", "placement": "bottom" },
+            "tooltip": { "mode": "multi" }
+          },
+          "targets": [
+            {
+              "datasource": { "type": "prometheus" },
+              "expr": "count(kube_pod_status_phase{phase=\"Running\", namespace=\"default\"})",
+              "legendFormat": "Pods Running",
+              "refId": "A"
+            },
+            {
+              "datasource": { "type": "prometheus" },
+              "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"default\", container!=\"\"}[2m])) / sum(kube_pod_container_resource_limits{namespace=\"default\", resource=\"cpu\"}) * 100",
+              "legendFormat": "CPU %",
+              "refId": "B"
+            }
+          ]
+        }
+      ],
+      "schemaVersion": 36,
+      "version": 2
+    }

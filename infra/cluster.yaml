@@ -12,50 +12,44 @@ kind: ClusterConfig
 # helm/worldcup ou job/serviceaccount.yaml), la région AWS, et la version de
 # Kubernetes du control plane (géré par AWS, on ne le voit pas tourner).
 metadata:
-  name: worldcup-cluster
+  name: worldcup-cluster-2
   region: eu-west-3
   version: "1.32"
 
 # Les 2 datacenters physiques sur lesquels le cluster sera réparti.
 # C'est CE choix qui réalise l'exigence "haute disponibilité multi-AZ" :
 # si eu-west-3a tombe, eu-west-3b continue de servir.
-availabilityZones:
-  - eu-west-3a
-  - eu-west-3b
-
-# Un NAT Gateway permettrait aux machines en réseau privé de sortir vers
-# Internet (télécharger des images Docker, etc.) sans être joignables depuis
-# l'extérieur. Coûte ~32 $/mois en continu. Pour un projet de 2-3 jours, on
-# le désactive et on met les machines en réseau public à la place (voir
-# privateNetworking: false plus bas) — moins "propre" en vraie prod, mais
-# gratuit pour la démo.
+# On réutilise le VPC existant (celui qui contient la RDS worldcup-db2).
+# Les subnets et l'IGW ont été recréés manuellement après le delete partiel.
 vpc:
-  nat:
-    gateway: Disable
+  id: vpc-06519cbd0c0cb09dc
+  subnets:
+    public:
+      eu-west-3a:
+        id: subnet-08f479d4fa1581241
+        cidr: 192.168.0.0/19
+      eu-west-3b:
+        id: subnet-00155be342ed73d25
+        cidr: 192.168.32.0/19
 
 # Le "nodegroup" = le groupe de machines EC2 qui font tourner les pods.
 # C'est lui que le Cluster Autoscaler (infra/cluster-autoscaler.yaml) va
 # agrandir/réduire automatiquement selon la charge.
 managedNodeGroups:
   - name: workers
-    # t3.medium a été refusé par AWS : "not eligible for Free Tier" (le compte
-    # est restreint aux instances Free Tier). Seuls t2.micro/t3.micro le sont.
-    instanceType: t3.micro
+    # t3.small (2 Go RAM) choisi pour tenir le monitoring (Prometheus + Grafana)
+    # sans OOM. t3.micro (1 Go) était trop petit — le monitoring seul prenait
+    # ~900 Mo, les nœuds crashaient.
+    instanceType: t3.small
     # Toujours au moins 2 machines (cohérent avec les 2 réplicas minimum de
-    # l'app) ; peut monter jusqu'à 8 si le Cluster Autoscaler en a besoin.
+    # l'app) ; max 4 pour éviter la spirale de nœuds (on avait monté à 7).
     minSize: 2
-    maxSize: 8
+    maxSize: 4
     desiredCapacity: 2
     availabilityZones:
       - eu-west-3a
       - eu-west-3b
-    # Par défaut, un t3.micro n'accepte que 4 pods max (limite réseau liée au
-    # nombre d'IP disponibles par carte réseau, pas à la RAM/CPU). On relève
-    # cette limite à 17 (= ce qu'un t3.medium aurait par défaut) grâce au
-    # "prefix delegation" activé sur le CNI (voir la commande kubectl juste
-    # après la création du nodegroup). Sans les 2 réglages ensemble (celui-ci
-    # + le prefix delegation), les pods système/monitoring bloquent tout.
-    maxPodsPerNode: 17
+    maxPodsPerNode: 110
     # Cohérent avec le NAT Gateway désactivé ci-dessus : les machines ont une
     # IP publique directe au lieu de passer par un NAT.
     privateNetworking: false

@@ -3,6 +3,25 @@
 > Diagramme source (Mermaid), à exporter en PNG (draw.io / Excalidraw / capture
 > d'écran du rendu Mermaid) pour la slide de soutenance → `docs/architecture.png`.
 
+## Version simplifiée (pour la slide de présentation)
+
+```mermaid
+flowchart TB
+    User((Utilisateur)) --> ALB[ALB]
+    ALB --> EKS["Cluster EKS<br/>2 à 10 pods, 2 AZ"]
+    EKS --> RDS[("RDS PostgreSQL")]
+
+    EKS -.-> Obs["Prometheus + Grafana + Loki"]
+    EKS -.-> Job["CronJob"] --> S3[("S3")]
+    GH["GitHub Actions"] -.déploie.-> EKS
+```
+
+Cette version garde juste l'essentiel pour une slide lisible à distance : le
+chemin de la requête (Utilisateur → ALB → EKS → RDS) + les 3 briques annexes
+(observabilité, Job, CI/CD) sans détailler chaque flèche technique.
+
+## Version détaillée (pour répondre aux questions techniques)
+
 ```mermaid
 flowchart TB
     Internet((Internet))

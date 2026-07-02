@@ -184,7 +184,7 @@ spec:
             - --expander=least-waste
             # IMPORTANT : doit pointer vers le bon nom de cluster pour
             # trouver le bon Auto Scaling Group EC2 à agrandir/réduire.
-            - --node-group-auto-discovery=asg:tag=k8s.io/cluster-autoscaler/enabled,k8s.io/cluster-autoscaler/worldcup-cluster
+            - --node-group-auto-discovery=asg:tag=k8s.io/cluster-autoscaler/enabled,k8s.io/cluster-autoscaler/worldcup-cluster-2
             - --balance-similar-node-groups
             - --skip-nodes-with-system-pods=false
           volumeMounts:

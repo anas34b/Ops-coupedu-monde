@@ -25,7 +25,7 @@ spec:
         spec:
           # ServiceAccount avec IRSA (voir serviceaccount.yaml) : donne au pod
           # le droit d'écrire sur S3, sans clé AWS stockée nulle part.
-          serviceAccountName: worldcup-job-sa
+          serviceAccountName: worldcup-cronjob-sa
           containers:
             - name: rapport
               image: 673586358333.dkr.ecr.eu-west-3.amazonaws.com/worldcup-job:latest
@@ -36,7 +36,7 @@ spec:
                     name: db-credentials
               env:
                 - name: S3_BUCKET
-                  value: worldcup-cdm2026-rapports-673586358333
+                  value: worldcup-exports-673586358333
                 - name: AWS_REGION
                   value: eu-west-3
           # Un Job (contrairement à un Deployment) ne doit PAS redémarrer en
