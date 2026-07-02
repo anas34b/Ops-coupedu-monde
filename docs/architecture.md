@@ -8,11 +8,11 @@
 ```mermaid
 flowchart TB
     User((Utilisateur)) --> ALB[ALB]
-    ALB --> EKS["Cluster EKS<br/>2 à 10 pods, 2 AZ"]
-    EKS --> RDS[("RDS PostgreSQL")]
+    ALB --> EKS["Cluster EKS worldcup-cluster-2<br/>t3.small · 2 à 10 pods · 2 AZ"]
+    EKS --> RDS[("RDS PostgreSQL<br/>worldcup-db2")]
 
-    EKS -.-> Obs["Prometheus + Grafana + Loki"]
-    EKS -.-> Job["CronJob"] --> S3[("S3")]
+    EKS -.-> Obs["Prometheus + Grafana<br/>(URLs publiques via ALB)"]
+    EKS -.-> Job["CronJob"] --> S3[("S3<br/>worldcup-exports")]
     GH["GitHub Actions"] -.déploie.-> EKS
 ```
 
@@ -29,7 +29,7 @@ flowchart TB
     subgraph AWS["AWS - eu-west-3"]
         ALB["ALB<br/>(AWS Load Balancer Controller / Ingress)"]
 
-        subgraph EKS["EKS Cluster - 2 AZ"]
+        subgraph EKS["EKS Cluster worldcup-cluster-2 — t3.small x2 — 2 AZ"]
             direction TB
             subgraph AZ_A["AZ eu-west-3a"]
                 Pod1["Pod app #1"]
@@ -39,11 +39,10 @@ flowchart TB
             end
             MS["metrics-server<br/>(fournit le CPU au HPA)"]
             HPA["HPA<br/>(CPU > 70%)"]
-            CA["Cluster Autoscaler<br/>(ajoute des nœuds EC2)"]
+            CA["Cluster Autoscaler<br/>(min 2 / max 4 nœuds)"]
             Prom["Prometheus"]
-            Loki["Loki<br/>(logs centralisés)"]
-            Graf["Grafana"]
-            CronJob["CronJob<br/>rapport quotidien"]
+            Graf["Grafana<br/>(dashboard pods + CPU live)"]
+            CronJob["CronJob classement-quotidien<br/>IRSA → S3"]
         end
 
         RDS[("RDS PostgreSQL<br/>single-AZ")]
@@ -64,10 +63,7 @@ flowchart TB
     CA -.scale nœuds.-> EKS
     Prom -.scrape /metrics.-> Pod1
     Prom -.scrape /metrics.-> Pod2
-    Loki -.collecte logs.-> Pod1
-    Loki -.collecte logs.-> Pod2
     Graf --> Prom
-    Graf --> Loki
     CronJob -->|lit| RDS
     CronJob -->|écrit| S3
     GH -->|build & push| ECR
@@ -88,9 +84,10 @@ flowchart TB
    cluster.
 6. **metrics-server** : collecte le CPU/RAM réel des pods, c'est la seule
    source d'info du HPA — sans lui, aucun scaling n'est possible.
-7. **Prometheus + Grafana + Loki** : Prometheus scrape `/metrics` (déjà exposé
-   par l'app), Loki centralise les logs de tous les pods, Grafana affiche les
-   deux dans les mêmes dashboards en direct pendant la démo.
+7. **Prometheus + Grafana** : Prometheus scrape `/metrics` (déjà exposé par
+   l'app), Grafana affiche les dashboards en direct. Dashboard custom "Worldcup —
+   Pods en temps réel" : nombre de pods Running + CPU % (refresh 5s, double axe Y).
+   Les deux sont accessibles publiquement via Ingress ALB.
 7. **CronJob** : tâche planifiée (Mission 3) qui lit la base et dépose un rapport
    JSON sur S3.
 8. **GitHub Actions** : à chaque push sur `main`, build l'image, la pousse sur ECR,
